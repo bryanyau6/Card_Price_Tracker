@@ -1,0 +1,14 @@
+# Google Credentials (!!! 絕對不要上傳 !!!)
+token.json
+credentials.json
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# VS Code
+.vscode/
+
+# Python 虛擬環境 (如果有的話)
+.venv/
+venv/
