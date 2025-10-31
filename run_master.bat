@@ -1,9 +1,12 @@
 @echo OFF
-REM 更改目錄到 .bat 檔案所在的資料夾 (即 Card_Price_Tracker 資料夾)
+REM 戰術指令 v3.0 (新基地 + Python 3.14)
+
+REM 更改目錄到 .bat 檔案所在的資料夾 (C:\projects\Card_Price_Tracker_NEW)
 cd /d "%~dp0"
 
-REM 執行你的「總指揮」Python 腳本 (使用你日誌中顯示的 Python 絕對路徑)
-echo [INFO] 正在啟動總指揮腳本...
-C:\Users\bryan\AppData\Local\Programs\Python\Python313\python.exe run_all_scrapers.py
+REM 執行總指揮腳本 (使用您已安裝工具的 Python 3.14)
+echo [INFO] 正在啟動總指揮腳本 (v7.5 自動維護版)...
+C:\Python314\python.exe run_all_scrapers.py
 
 echo [INFO] 總指揮腳本執行完畢。
+pause
