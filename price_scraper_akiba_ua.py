@@ -69,7 +69,7 @@ try:
 
     with sync_playwright() as p:
         print("\n>> 步驟 2/4: 正在啟動 Playwright 瀏覽器並執行「閃電進入 + 超長待機」...") # 步驟重編
-        browser = p.firefox.launch(headless=False)
+        browser = p.firefox.launch(headless=True)
         page = browser.new_page()
 
         print(f"     -> 正在訪問: {target_url} (等待 'domcontentloaded' 事件, 最長 120 秒)...")
