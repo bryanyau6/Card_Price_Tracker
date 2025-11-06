@@ -1,15 +1,15 @@
 # =========================================================
-# Phase 4, Block 1.0: 維護工具 (Maintenance Tool) - 存檔 Price_History v1.3
+# Phase 4, Block 1.0: 維護工具 (Maintenance Tool) - 存檔 Price_History v1.3.1
 # Author: 電王
 # 戰術: 【v1.3 Purge Old Data - 精準清除版】
 # 職責: 智能分析時間戳，只保留最新的 3 個「時段」的數據，其餘全部刪除。
 #
-# Update v1.3:
-# 1. 【核心修正】: 根據指揮官最新指示，不再存檔 (No Archiving)。
-# 2. 【核心修正 - 時間邏輯】: 智能分組時間戳，
-#    定義相隔 4 小時以上為新時段，並只保留最新的 3 個時段。
-# 3. 【核心修正 - 10M 上限】: 使用 Clear() -> Append() 流程，
-#    永久刪除舊數據，不再使用 duplicate()。
+# Update v1.3.1:
+# 1. (來自 v1.3) 保留 3 個最新時段，永久刪除舊數據。
+# 2. 【核心】: 增加了 'import sys'。
+# 3. 【核心】: 在 'except' 模塊中增加了 'sys.exit(1)'，
+#    確保此腳本在失敗時會返回錯誤代碼 1，
+#    以便 run_all_scrapers.py (v7.5) 能夠中止後續任務。
 # =========================================================
 import gspread
 from google.oauth2.credentials import Credentials
@@ -17,6 +17,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 import os.path
 from datetime import datetime, timedelta
+import sys # <-- 【v1.3.1】 新增
 
 # --- [步驟 A: 本地端 Google Sheets 授權] --- 
 print(">> 步驟 A: 正在進行本地端 Google Sheets 授權...")
@@ -31,9 +32,9 @@ if not creds or not creds.valid:
             print(f"❌ 刷新 Token 失敗: {e}");
             if os.path.exists('credentials.json'):
                 flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES); creds = flow.run_local_server(port=0)
-            else: print("\n❌ 錯誤: 找不到 'credentials.json'。"); exit()
+            else: print("\n❌ 錯誤: 找不到 'credentials.json'。"); sys.exit(1) # <-- 【v1.3.1】 增加
     else:
-        if not os.path.exists('credentials.json'): print("\n❌ 錯誤: 找不到 'credentials.json'。"); exit()
+        if not os.path.exists('credentials.json'): print("\n❌ 錯誤: 找不到 'credentials.json'。"); sys.exit(1) # <-- 【v1.3.1】 增加
         flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES); creds = flow.run_local_server(port=0)
     with open('token.json', 'w') as token: token.write(creds.to_json())
 gc = gspread.authorize(creds)
@@ -42,12 +43,12 @@ print("✅ Google Sheets 授權成功。")
 # --- [設定區域] ---
 sheet_name = "卡牌價格追蹤系統 - Command Deck"
 history_worksheet_name = "Price_History"
-SESSION_GAP_HOURS = 4  # 【v1.3 新設定】: 超過 4 小時視為一個新時段
-SESSIONS_TO_KEEP = 3   # 【v1.3 新設定】: 保留 3 個最新時段
+SESSION_GAP_HOURS = 4  
+SESSIONS_TO_KEEP = 2   
 
 # --- [主程式開始] ---
 try:
-    print(f"\n>> 精準清除維護工具 v1.3 ({history_worksheet_name}) 已啟動...")
+    print(f"\n>> 精準清除維護工具 v1.3.1 ({history_worksheet_name}) 已啟動...")
     print(f">> 正在連接到 Google Sheet: '{sheet_name}'...")
     sh = gc.open(sheet_name)
     print("✅ 連接成功。")
@@ -57,7 +58,7 @@ try:
         history_worksheet = sh.worksheet(history_worksheet_name)
     except gspread.exceptions.WorksheetNotFound:
         print(f"❌ 錯誤: 找不到名為 '{history_worksheet_name}' 的工作表。")
-        exit()
+        sys.exit(1) # <-- 【v1.3.1】 增加
         
     print(f"✅ 成功打開。正在讀取所有數據 (這可能需要幾分鐘)...")
     all_data = history_worksheet.get_all_values()
@@ -74,7 +75,6 @@ try:
     # --- 【v1.3 核心 - 時間邏輯】 ---
     print(f">> 正在分析時間戳 (F 欄) 以識別 {SESSIONS_TO_KEEP} 個最新時段...")
     
-    # 1. 提取所有唯一的時間戳對象
     unique_timestamps = set()
     for row in rows:
         try:
@@ -85,42 +85,33 @@ try:
 
     if not unique_timestamps:
         print("❌ 錯誤: 找不到任何有效的時間戳數據，無法分析。")
-        exit()
+        sys.exit(1) # <-- 【v1.3.1】 增加
 
-    # 2. 排序 (從新到舊)
     sorted_timestamps = sorted(list(unique_timestamps), reverse=True)
 
-    # 3. 將時間戳分組為「時段」
     sessions = []
     if sorted_timestamps:
         current_session = [sorted_timestamps[0]]
         for i in range(1, len(sorted_timestamps)):
             current_ts = sorted_timestamps[i]
             prev_ts = sorted_timestamps[i-1]
-            
-            # 如果時間差小於 4 小時，則它們屬於同一個時段
             if (prev_ts - current_ts) < timedelta(hours=SESSION_GAP_HOURS):
                 current_session.append(current_ts)
             else:
-                # 否則，舊時段結束，新時段開始
                 sessions.append(current_session)
                 current_session = [current_ts]
-        
-        sessions.append(current_session) # 加入最後一個時段
+        sessions.append(current_session) 
 
     print(f"   -> 分析完畢。共發現 {len(sessions)} 個獨立時段。")
 
-    # 4. 獲取要保留的時段 (最新的 3 個)
     sessions_to_keep = sessions[0:SESSIONS_TO_KEEP]
     print(f"   -> 遵命。將保留最新的 {len(sessions_to_keep)} 個時段。")
 
-    # 5. 將要保留的 datetime 對象轉換回 set of strings，以便快速查找
     timestamps_to_keep_set = set()
     for session in sessions_to_keep:
         for dt in session:
             timestamps_to_keep_set.add(dt.strftime("%Y-%m-%d %H:%M:%S"))
 
-    # 6. 過濾原始數據
     rows_to_keep = []
     rows_to_discard_count = 0
     
@@ -134,12 +125,14 @@ try:
 
     # --- 【v1.3 核心 - 存檔邏輯 (刪除)】 ---
     
-    # 1. 清空原始 Price_History
+    if rows_to_discard_count == 0:
+        print("✅ 沒有需要刪除的舊數據。任務完成。")
+        exit() # 正常退出
+        
     print(f">> 步驟 1/2: 正在清空 '{history_worksheet_name}' 的所有數據...")
     history_worksheet.clear()
     print("   -> ✅ 清空完畢。")
     
-    # 2. 將標頭和要保留的數據寫回
     print(f">> 步驟 2/2: 正在將標頭和 {len(rows_to_keep)} 行新數據寫回 '{history_worksheet_name}'...")
     history_worksheet.append_row(headers, value_input_option='USER_ENTERED')
     if rows_to_keep:
@@ -162,3 +155,4 @@ try:
 except Exception as e:
     print(f"\n❌❌❌ 發生嚴重錯誤 ❌❌❌"); 
     print(f"錯誤詳情: {e}")
+    sys.exit(1) # <-- 【v1.3.1 核心修正】
