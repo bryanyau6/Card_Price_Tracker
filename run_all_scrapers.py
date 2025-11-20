@@ -18,7 +18,11 @@ import os
 # (v7.5 移除了 gspread 和 requests，因為 v7.4 已改為手動匯率)
 
 def run_script(script_name):
-    command = [sys.executable, script_name]
+    # 獲取當前腳本所在的目錄
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    script_path = os.path.join(script_dir, script_name)
+    
+    command = [sys.executable, script_path]
     print(f"\n{'='*50}")
     print(f">> 正在啟動子腳本: {script_name}")
     print(f"{'='*50}\n")
@@ -26,6 +30,9 @@ def run_script(script_name):
     try:
         env = os.environ.copy()
         env['PYTHONUTF8'] = '1'
+        
+        # 獲取腳本所在目錄作為工作目錄
+        script_dir = os.path.dirname(os.path.abspath(__file__))
         
         with subprocess.Popen(
             command, 
@@ -35,7 +42,8 @@ def run_script(script_name):
             encoding='utf-8', 
             errors='replace',
             bufsize=1,
-            env=env
+            env=env,
+            cwd=script_dir
         ) as process:
             for line in process.stdout:
                 print(line, end='') 

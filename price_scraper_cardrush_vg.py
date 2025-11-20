@@ -11,12 +11,12 @@ import gspread
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
-import os.path, time, re, random
+import os.path, time, re, random, sys
 from datetime import datetime
 from bs4 import BeautifulSoup
 import pandas as pd
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-# import requests # <-- 【v1.3】 已移除
+# import requests # <-- 【v1.2】 已移除
 
 # --- [步驟 A: 本地端 Google Sheets 授權] --- 
 print(">> 步驟 A: 正在進行本地端 Google Sheets 授權...")
@@ -31,9 +31,9 @@ if not creds or not creds.valid:
             print(f"❌ 刷新 Token 失敗: {e}");
             if os.path.exists('credentials.json'):
                 flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES); creds = flow.run_local_server(port=0)
-            else: print("\n❌ 錯誤: 找不到 'credentials.json'。"); exit()
+            else: print("\n❌ 錯誤: 找不到 'credentials.json'。"); sys.exit(1)
     else:
-        if not os.path.exists('credentials.json'): print("\n❌ 錯誤: 找不到 'credentials.json'。"); exit()
+        if not os.path.exists('credentials.json'): print("\n❌ 錯誤: 找不到 'credentials.json'。"); sys.exit(1)
         flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES); creds = flow.run_local_server(port=0)
     with open('token.json', 'w') as token: token.write(creds.to_json())
 gc = gspread.authorize(creds)

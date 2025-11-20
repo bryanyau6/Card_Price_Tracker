@@ -65,7 +65,7 @@ try:
     
     if len(all_data) <= 1:
         print("✅ Price_History 為空或只有標頭，無需操作。任務完成。")
-        exit()
+        sys.exit(0)
 
     headers = all_data[0]
     rows = all_data[1:]
@@ -127,7 +127,7 @@ try:
     
     if rows_to_discard_count == 0:
         print("✅ 沒有需要刪除的舊數據。任務完成。")
-        exit() # 正常退出
+        sys.exit(0) # 正常退出
         
     print(f">> 步驟 1/2: 正在清空 '{history_worksheet_name}' 的所有數據...")
     history_worksheet.clear()
