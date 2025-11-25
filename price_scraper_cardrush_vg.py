@@ -1,7 +1,8 @@
 # =========================================================
-# Phase 1, Block 3.1: 價格爬蟲 (Price Scraper) - Card Rush VG 售價 v1.3 (JPY-Only + API 優化)
+# Phase 1, Block 3.1: 價格爬蟲 (Price Scraper) - Card Rush VG 售價 v1.4 (重試機制)
 # Author: 電王
-# 戰術: 【v1.2 雙重掃描】+【v1.3 JPY-Only + API 優化】
+# 戰術: 【v1.2 雙重掃描】+【v1.3 JPY-Only + API 優化】+【v1.4 重試機制】
+# Update: v1.4 - 新增頁面重試機制 + 瀏覽器定期重啟，解決連接中斷問題
 # Update: v1.3 - 徹底移除所有匯率 (HKD) 相關代碼。
 #         此腳本現在只負責抓取 JPY 原始價格並寫入 Sheet (9欄結構)。
 #         【核心】: 將 get_all_records() 替換為 col_values(2)，
@@ -50,6 +51,25 @@ SERIES_INDEX_URL_1 = "https://www.cardrush-vanguard.jp/"
 SERIES_INDEX_URL_2 = "https://www.cardrush-vanguard.jp/page/47" 
 
 # --- 【v1.3】 匯率換算函數已移除 --- 
+
+# --- [v1.4 新增：帶重試機制的頁面訪問函數] ---
+def retry_page_goto(page, url, max_retries=3):
+    """帶重試機制的頁面訪問"""
+    for attempt in range(max_retries):
+        try:
+            page.goto(url, wait_until='networkidle', timeout=30000)
+            page.wait_for_selector("li.list_item_cell", timeout=10000)
+            return True
+        except Exception as e:
+            print(f"     -> ⚠️ 訪問失敗 (嘗試 {attempt+1}/{max_retries}): {str(e)[:80]}...")
+            if attempt < max_retries - 1:
+                wait_time = random.uniform(3, 6)
+                print(f"     -> 等待 {wait_time:.1f} 秒後重試...")
+                time.sleep(wait_time)
+            else:
+                print(f"     -> ❌ 頁面重試 {max_retries} 次後仍失敗")
+                return False
+    return False
 
 # --- [v1.2 函數] ---
 def get_links_from_page(page, url, selector):
@@ -111,23 +131,68 @@ try:
         all_cardrush_cards = {}
 
         for i, series_url_path in enumerate(VG_SERIES_URLS):
-            series_url = base_url + series_url_path
+            # --- [v1.4 新增：每 15 個專櫃重啟瀏覽器] ---
+            if i > 0 and i % 15 == 0:
+                print(f"\n  -> 🔄 已掃描 {i} 個專櫃，重啟瀏覽器以釋放資源...")
+                try:
+                    page.close()
+                    browser.close()
+                    time.sleep(3)
+                    browser = p.firefox.launch(headless=True)
+                    page = browser.new_page()
+                    print("  -> ✅ 瀏覽器已重啟\n")
+                except Exception as e:
+                    print(f"  -> ⚠️ 瀏覽器重啟失敗: {e}，嘗試繼續...")
             
-            print(f"  -> 正在掃蕩專櫃 {i+1}/{len(VG_SERIES_URLS)}: {series_url}")
+            series_url = base_url + series_url_path
+            print(f"  -> 正在掃蕩專櫃 {i+1}/{len(VG_SERIES_URLS)}: {series_url}")
+            
             current_page = 1
+            consecutive_failures = 0  # [v1.4] 連續失敗計數器
+            
             while True:
                 page_url = f"{series_url}?page={current_page}"
                 if current_page == 1: page_url = series_url
 
-                print(f"     -> 正在掃蕩頁面 {current_page}...")
+                print(f"     -> 正在掃蕩頁面 {current_page}...")
+                
+                # --- [v1.4 核心改動：使用重試函數] ---
+                if not retry_page_goto(page, page_url):
+                    consecutive_failures += 1
+                    
+                    # 連續失敗 2 次，嘗試重啟瀏覽器
+                    if consecutive_failures == 2:
+                        print(f"     -> 🔄 連續失敗 {consecutive_failures} 次，嘗試重啟瀏覽器...")
+                        try:
+                            page.close()
+                            browser.close()
+                            time.sleep(5)
+                            browser = p.firefox.launch(headless=True)
+                            page = browser.new_page()
+                            print("     -> ✅ 瀏覽器已重啟，繼續嘗試...")
+                            consecutive_failures = 0
+                            continue  # 重新嘗試當前頁面
+                        except Exception as e:
+                            print(f"     -> ❌ 瀏覽器重啟失敗: {e}")
+                    
+                    # 連續失敗 3 次，放棄該專櫃
+                    if consecutive_failures >= 3:
+                        print("     -> ⚠️ 連續失敗過多，跳轉到下個專櫃")
+                        break
+                    
+                    current_page += 1
+                    continue
+                
+                consecutive_failures = 0  # 成功後重置失敗計數
+                
                 try:
-                    page.goto(page_url, wait_until='networkidle', timeout=30000)
-                    page.wait_for_selector("li.list_item_cell", timeout=10000)
                     page_html = page.content()
                     soup = BeautifulSoup(page_html, 'html.parser')
                     card_items = soup.select("li.list_item_cell")
-                    if not card_items: break
-                    print(f"     -> 在此頁面發現 {len(card_items)} 個商品。")
+                    if not card_items: 
+                        print("     -> 此頁面沒有商品，可能已到達末頁")
+                        break
+                    print(f"     -> 在此頁面發現 {len(card_items)} 個商品。")
 
                     for item in card_items:
                         item_data = item.find('div', class_='item_data');
@@ -167,17 +232,20 @@ try:
 
                     next_page_link = soup.select_one('a.to_next_page')
                     if not next_page_link: 
-                        print("     -> 此系列已掃蕩完畢（沒有下一頁）。"); 
+                        print("     -> 此系列已掃蕩完畢（沒有下一頁）。"); 
                         break
+                    
                     current_page += 1
-                    time.sleep(random.uniform(1, 3))
-                except PlaywrightTimeoutError:
-                    if current_page == 1: print("     -> 警告：此系列可能為空或加載超時...")
-                    else: print(f"     -> 在第 {current_page} 頁等待超時，跳轉到下個系列。")
-                    break
+                    wait_time = random.uniform(2, 5)  # [v1.4] 增加延遲範圍
+                    time.sleep(wait_time)
+                    
                 except Exception as e: 
-                    print(f"     -> 掃蕩頁面 {current_page} 時失敗。錯誤: {e}"); 
-                    break
+                    print(f"     -> ❌ 解析頁面 {current_page} 時失敗: {e}"); 
+                    consecutive_failures += 1
+                    if consecutive_failures >= 3:
+                        print("     -> 連續解析失敗過多，跳轉到下個專櫃")
+                        break
+                    continue
 
         print(f"\n✅ 所有 VG 專櫃掃蕩完畢，共捕獲 {len(all_cardrush_cards)} 種卡牌的情報。")
 

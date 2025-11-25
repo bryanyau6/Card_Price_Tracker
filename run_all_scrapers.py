@@ -1,9 +1,10 @@
 # =========================================================
-# Phase 3.4: 總指揮腳本 (Master Script) v7.6 - 自動維護版 + Socket 錯誤處理
+# Phase 3.4: 總指揮腳本 (Master Script) v7.7 - 自動維護版 + 超時保護
 # Author: 電王
 # 職責: 1. (新) 自動執行 archive_price_history.py 進行數據清理。
 #       2. (舊) 按順序執行所有的 JPY-Only 價格爬蟲。
 #
+# Update v7.7: 新增超時保護機制，防止腳本無限卡住
 # Update v7.6: 新增 socket 錯誤自動重試機制
 # Update v7.5: 
 # 1. (來自 v7.4) 採用手動匯率架構 (不再讀寫 F1 儲存格)。
@@ -28,12 +29,27 @@ def run_script(script_name):
     print(f">> 正在啟動子腳本: {script_name}")
     print(f"{'='*50}\n")
     
+    # --- [v7.7 新增] 設定超時時間（不同腳本不同時間）---
+    if "mercadop" in script_name or "cardrush" in script_name:
+        timeout_minutes = 60  # 大型爬蟲：60 分鐘
+    elif "akiba" in script_name or "uniari" in script_name:
+        timeout_minutes = 45  # 中型爬蟲：45 分鐘
+    elif "archive" in script_name:
+        timeout_minutes = 30  # 維護腳本：30 分鐘
+    else:
+        timeout_minutes = 40  # 預設：40 分鐘
+    
+    timeout_seconds = timeout_minutes * 60
+    print(f">> ⏱️ 超時限制: {timeout_minutes} 分鐘\n")
+    
     # --- [v7.6 新增] 最多重試 2 次 ---
     max_retries = 2
     for attempt in range(max_retries + 1):
         try:
             env = os.environ.copy()
             env['PYTHONUTF8'] = '1'
+            
+            import signal
             
             with subprocess.Popen(
                 command, 
@@ -46,18 +62,54 @@ def run_script(script_name):
                 env=env,
                 cwd=script_dir
             ) as process:
-                socket_error_count = 0  # [v7.6] 計算 socket 錯誤次數
+                socket_error_count = 0
+                start_time_script = time.time()
+                last_output_time = time.time()
+                no_output_timeout = 600  # 10 分鐘沒輸出就認為卡住
                 
-                for line in process.stdout:
-                    print(line, end='')
-                    
-                    # [v7.6] 檢測 socket 錯誤
-                    if "socket.send() raised exception" in line:
-                        socket_error_count += 1
-                        if socket_error_count > 10:  # 超過 10 次就終止
-                            print(f"\n⚠️ 檢測到過多 socket 錯誤 ({socket_error_count})，終止腳本...")
-                            process.kill()
+                try:
+                    while True:
+                        # 檢查進程是否還在運行
+                        if process.poll() is not None:
                             break
+                        
+                        # [v7.7] 檢查總運行時間
+                        elapsed = time.time() - start_time_script
+                        if elapsed > timeout_seconds:
+                            print(f"\n\n⚠️⚠️⚠️ 超時警告 ⚠️⚠️⚠️")
+                            print(f"腳本 {script_name} 已運行 {elapsed/60:.1f} 分鐘，超過限制 {timeout_minutes} 分鐘")
+                            print(f"正在強制終止...")
+                            process.kill()
+                            raise TimeoutError(f"腳本運行超過 {timeout_minutes} 分鐘")
+                        
+                        # [v7.7] 檢查是否長時間沒輸出（可能卡住）
+                        time_since_output = time.time() - last_output_time
+                        if time_since_output > no_output_timeout:
+                            print(f"\n\n⚠️⚠️⚠️ 無輸出超時警告 ⚠️⚠️⚠️")
+                            print(f"腳本 {script_name} 已 {time_since_output/60:.1f} 分鐘沒有輸出，可能卡住")
+                            print(f"正在強制終止...")
+                            process.kill()
+                            raise TimeoutError(f"腳本超過 {no_output_timeout/60:.0f} 分鐘沒有輸出")
+                        
+                        # 讀取輸出
+                        line = process.stdout.readline()
+                        if line:
+                            print(line, end='')
+                            last_output_time = time.time()  # 更新最後輸出時間
+                            
+                            # [v7.6] 檢測 socket 錯誤
+                            if "socket.send() raised exception" in line:
+                                socket_error_count += 1
+                                if socket_error_count > 10:
+                                    print(f"\n⚠️ 檢測到過多 socket 錯誤 ({socket_error_count})，終止腳本...")
+                                    process.kill()
+                                    break
+                        else:
+                            time.sleep(0.1)  # 避免 CPU 100%
+                                
+                except Exception as e:
+                    process.kill()
+                    raise e
 
             # [v7.6] 如果是 socket 錯誤導致的失敗，且還有重試次數
             if socket_error_count > 10 and attempt < max_retries:
@@ -102,6 +154,21 @@ def run_script(script_name):
                 print(f"   錯誤代碼: {e.returncode}")
                 print(f"{'='*50}\n")
                 return False
+        
+        except TimeoutError as e:
+            if attempt < max_retries:
+                print(f"\n{'='*50}")
+                print(f"⚠️ 子腳本 {script_name} 執行超時")
+                print(f"   錯誤: {e}")
+                print(f"   正在進行第 {attempt + 2}/{max_retries + 1} 次重試...")
+                print(f"{'='*50}\n")
+                time.sleep(10)
+                continue
+            else:
+                print(f"\n{'='*50}")
+                print(f"❌ 錯誤: 子腳本 {script_name} 重試 {max_retries + 1} 次後仍超時。")
+                print(f"{'='*50}\n")
+                return False
                 
         except FileNotFoundError:
             print(f"\n{'='*50}")
@@ -130,7 +197,7 @@ def run_script(script_name):
 # --- [主執行流程 v7.5] ---
 if __name__ == "__main__":
     start_time = datetime.now()
-    print(f"======= 價格爬蟲總指揮系統 (OP + UA + VG + DM) v7.6 (自動維護版 + Socket 錯誤處理) 已啟動 =======")
+    print(f"======= 價格爬蟲總指揮系統 (OP + UA + VG + DM) v7.7 (自動維護版 + 超時保護) 已啟動 =======")
     print(f"開始時間: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     print("!! 匯率模式: 手動 (將使用 Card_Search!F1 中您輸入的值) !!")
     

@@ -136,20 +136,27 @@ try:
 
         for i, series_url_path in enumerate(DYNAMIC_SERIES_URLS):
             series_url = base_url + series_url_path 
-            print(f"  -> 正在掃蕩專櫃 {i+1}/{len(DYNAMIC_SERIES_URLS)}: {series_url}")
+            print(f"  -> 正在掃蕩專櫃 {i+1}/{len(DYNAMIC_SERIES_URLS)}: {series_url}")
             current_page = 1
-            while True:
+            consecutive_failures = 0  # 連續失敗計數器
+            max_pages = 100  # 最大頁數限制，防止無限循環
+            
+            while current_page <= max_pages:
                 page_url = f"{series_url}?page={current_page}"
                 if current_page == 1: page_url = series_url
-                print(f"     -> 正在掃蕩頁面 {current_page}...")
+                print(f"     -> 正在掃蕩頁面 {current_page}...")
                 try:
                     page.goto(page_url, wait_until='networkidle', timeout=30000) 
                     page.wait_for_selector("li.list_item_cell", timeout=10000)
                     page_html = page.content()
                     soup = BeautifulSoup(page_html, 'html.parser')
                     card_items = soup.select("li.list_item_cell")
-                    if not card_items: break
-                    print(f"     -> 在此頁面發現 {len(card_items)} 個商品。")
+                    if not card_items: 
+                        print("     -> 此頁面沒有商品，已到達末頁。")
+                        break
+                    print(f"     -> 在此頁面發現 {len(card_items)} 個商品。")
+                    
+                    consecutive_failures = 0  # 成功後重置失敗計數
 
                     for item in card_items:
                         item_data = item.find('div', class_='item_data')
@@ -184,13 +191,30 @@ try:
                         all_mercadop_cards[(item_card_number, item_name)] = {'price_jpy': price_jpy, 'status': status, 'image_url': image_url}
 
                     next_page_link = soup.select_one('a.to_next_page')
-                    if not next_page_link: print("     -> 此系列已掃蕩完畢（沒有下一頁）。"); break
+                    if not next_page_link: print("     -> 此系列已掃蕩完畢（沒有下一頁）。"); break
                     current_page += 1; time.sleep(random.uniform(1, 3))
+                    
                 except PlaywrightTimeoutError:
-                    if current_page == 1: print("     -> 警告：等待超時...")
-                    else: print(f"     -> 在第 {current_page} 頁等待超時...")
-                    break
-                except Exception as e: print(f"     -> 掃蕩頁面 {current_page} 時失敗。錯誤: {e}"); break
+                    consecutive_failures += 1
+                    if current_page == 1: 
+                        print("     -> 警告：第 1 頁等待超時，跳過此專櫃...")
+                        break
+                    else: 
+                        print(f"     -> 在第 {current_page} 頁等待超時...")
+                        if consecutive_failures >= 3:
+                            print(f"     -> 連續 {consecutive_failures} 次超時，跳過此專櫃...")
+                            break
+                        current_page += 1  # 嘗試下一頁
+                        continue
+                        
+                except Exception as e: 
+                    consecutive_failures += 1
+                    print(f"     -> 掃蕩頁面 {current_page} 時失敗。錯誤: {e}")
+                    if consecutive_failures >= 3:
+                        print(f"     -> 連續 {consecutive_failures} 次失敗，跳過此專櫃...")
+                        break
+                    current_page += 1  # 嘗試下一頁
+                    continue
 
         print(f"\n✅ 所有動態獲取的專櫃掃蕩完畢，共捕獲 {len(all_mercadop_cards)} 種卡牌的情報。")
 
