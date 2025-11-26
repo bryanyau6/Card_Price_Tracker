@@ -1,7 +1,8 @@
 # =========================================================
-# Phase 1, Block 3.3: 價格爬蟲 (Price Scraper) - Card Rush DM 買取 v1.1.2
+# Phase 1, Block 3.3: 價格爬蟲 (Price Scraper) - Card Rush DM 買取 v1.2
 # Author: 電王
 # 戰術: 【v1.1 JPY-Only + API 優化】+【v1.1.2 導航邏輯修正】
+# Update: v1.2   - 新增批次寫入機制，降低長程執行時的資料遺失風險。
 # Update: v1.1.2 - 徹底移除所有匯率 (HKD) 相關代碼。
 #         解決 [500] API 錯誤。
 #         增加 __NEXT_DATA__ 等待超時至 60 秒。
@@ -48,6 +49,10 @@ website_name = "Cardrush-DM-Kaitori"
 base_url = "https://cardrush.media" # 根域名
 game_title = "DuelMasters"
 TARGET_URL = "https://cardrush.media/duel_masters/buying_prices" 
+
+# --- [v1.2] 批次寫入設定 ---
+MASTER_BATCH_SIZE = 100
+HISTORY_BATCH_SIZE = 200
 
 # --- 【v1.1】 匯率換算函數已移除 --- 
 
@@ -189,7 +194,24 @@ try:
         print("\n>> 步驟 4/5: 開始執行情報擴張 (DM) 與價格記錄...") 
         new_cards_to_add = []
         price_history_to_add = []
+        total_new_cards = 0
+        total_price_records = 0
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        def flush_new_cards(force=False):
+            if new_cards_to_add and (force or len(new_cards_to_add) >= MASTER_BATCH_SIZE):
+                print(f"      -> 正在批次寫入 {len(new_cards_to_add)} 張新 DM 卡牌至 `Card_Master`...")
+                master_worksheet.append_rows(new_cards_to_add, value_input_option='USER_ENTERED')
+                print("      -> ✅ 新 DM 卡牌批次寫入完成！")
+                new_cards_to_add.clear()
+
+        def flush_price_history(force=False):
+            if price_history_to_add and (force or len(price_history_to_add) >= HISTORY_BATCH_SIZE):
+                print(f"      -> 正在批次寫入 {len(price_history_to_add)} 條 DM 買取價格至 `Price_History`...")
+                price_history_to_add.sort(key=lambda record: (record[1], record[5]))
+                history_worksheet.append_rows(price_history_to_add, value_input_option='USER_ENTERED')
+                print("      -> ✅ DM 買取價格批次寫入完成！")
+                price_history_to_add.clear()
 
         for (item_card_number, item_name), card_info in all_cardrush_cards.items():
             price_jpy = card_info['price_jpy']
@@ -212,7 +234,9 @@ try:
                     item_name, rarity, image_url, card_type
                 ])
                 existing_card_numbers.add(item_card_number)
+                total_new_cards += 1
                 print(f"         -> 已準備將其添加到 `Card_Master`。")
+                flush_new_cards()
 
             # --- [價格記錄: Price_History] ---
             history_unique_id = f"{item_card_number}_{item_name}"
@@ -229,27 +253,24 @@ try:
                 set_id_history, # H: Set_ID
                 image_url   # I: Image_URL
             ])
+            total_price_records += 1
+            flush_price_history()
 
-        print(f"\n✅ 情報處理完畢。準備新增 {len(new_cards_to_add)} 張新 DM 卡牌，記錄 {len(price_history_to_add)} 條 DM 買取價格 (JPY)。")
-        
-        if price_history_to_add:
-             print(">> 正在對捕獲的情報進行後端排序..."); 
-             price_history_to_add.sort(key=lambda record: (record[1], record[5])); 
-             print("✅ 情報排序完畢。")
+        print(f"\n✅ 情報處理完畢。共偵測 {total_new_cards} 張新 DM 卡牌，記錄 {total_price_records} 條 DM 買取價格 (JPY)。")
 
-        print("\n>> 步驟 5/5: 正在將數據寫入 Google Sheet...") 
-        if new_cards_to_add:
-            print(f"      -> 正在將 {len(new_cards_to_add)} 張新 DM 卡牌寫入 `Card_Master`...")
-            master_worksheet.append_rows(new_cards_to_add, value_input_option='USER_ENTERED')
-            print("      -> ✅ 新 DM 卡牌寫入成功！")
-        else: print("      -> 未發現需要添加到 `Card_Master` 的新 DM 卡牌。")
+        print("\n>> 步驟 5/5: 正在觸發最終批次寫入 (DM 買取)...") 
 
-        if price_history_to_add:
-            print(f"      -> 正在將 {len(price_history_to_add)} 條 DM 買取價格情報 (JPY-Only) **追加**到 `Price_History`...")
-            history_worksheet.append_rows(price_history_to_add, value_input_option='USER_ENTERED')
-            print("      -> ✅ DM 買取價格情報追加成功！")
+        flush_new_cards(force=True)
+        if total_new_cards == 0:
+            print("      -> 未發現需要添加到 `Card_Master` 的新 DM 卡牌。")
         else:
-            print("      -> 未捕獲到需要添加到 `Price_History` 的 DM 買取價格情報。")
+            print(f"      -> ✅ 累計寫入 `Card_Master` {total_new_cards} 張新 DM 卡牌。")
+
+        flush_price_history(force=True)
+        if total_price_records == 0:
+            print("      -> 未捕獲到需要添加到 `Price_History` 的 DM 買取價格情報。")
+        else:
+            print(f"      -> ✅ 累計寫入 `Price_History` {total_price_records} 條 DM 買取價格情報。")
 
         print("\n\n🎉🎉🎉 恭喜！Card Rush (DM) 買取 (JPY-Only) 任務完成！ 🎉🎉🎉")
         browser.close()

@@ -1,8 +1,9 @@
 # =========================================================
-# Phase 1, Block 1.3: 價格爬蟲 (Price Scraper) - Akiba OP 買取價 v1.5.1
+# Phase 1, Block 1.3: 價格爬蟲 (Price Scraper) - Akiba OP 買取價 v1.6
 # Author: 電王
 # 戰術: 【v1.5 JPY-Only + API 優化】+【v1.5.1 URL 空格終極修正】
-# Update: v1.5.1 - 徹底移除所有匯率 (HKD) 相關代碼。
+# Update: v1.6   - 新增批次寫入機制，減少腳本中途終止時的資料遺失風險。
+#         v1.5.1 - 徹底移除所有匯率 (HKD) 相關代碼。
 #         解決 [500] API 錯誤。
 #         【核心】: 使用 re.sub(r'\s+', '', ...) 清潔 image_url 中的所有空格。
 # =========================================================
@@ -47,6 +48,10 @@ target_url = "https://akihabara-cardshop.com/onepice-kaitori/"
 LOAD_MORE_BUTTON_SELECTOR = "button#loadMoreButton"
 FIRST_CARD_SELECTOR = "div.tr"
 base_url_akiba = "https://akihabara-cardshop.com"
+
+# --- [v1.6] 批次寫入設定 ---
+MASTER_BATCH_SIZE = 100
+HISTORY_BATCH_SIZE = 200
 
 # --- 【v1.5】 匯率換算函數已移除 ---
 
@@ -102,6 +107,23 @@ try:
         print("\n>> 步驟 3/4: 正在提取買取信息 (JPY) 並構建待寫入列表...") # 步驟重編
         price_history_to_add = []
         new_cards_to_add = [] # 【v1.5】 新增
+        total_new_cards = 0
+        total_price_records = 0
+
+        def flush_new_cards(force=False):
+            if new_cards_to_add and (force or len(new_cards_to_add) >= MASTER_BATCH_SIZE):
+                print(f"     -> 正在批次寫入 {len(new_cards_to_add)} 張新 OP 卡牌至 `Card_Master`...")
+                master_worksheet.append_rows(new_cards_to_add, value_input_option='USER_ENTERED')
+                print("     -> ✅ 新 OP 卡牌批次寫入完成！")
+                new_cards_to_add.clear()
+
+        def flush_price_history(force=False):
+            if price_history_to_add and (force or len(price_history_to_add) >= HISTORY_BATCH_SIZE):
+                print(f"     -> 正在批次寫入 {len(price_history_to_add)} 條買取價格至 `Price_History`...")
+                price_history_to_add.sort(key=lambda record: (record[1], record[5]))
+                history_worksheet.append_rows(price_history_to_add, value_input_option='USER_ENTERED')
+                print("     -> ✅ 買取價格批次寫入完成！")
+                price_history_to_add.clear()
 
         card_units = soup.select("div.tbody > div.tr")
         print(f"     -> 在頁面上偵測到 {len(card_units)} 條買取情報。")
@@ -151,7 +173,9 @@ try:
                         unique_id, item_card_number, "One Piece Card Game", set_id_history,
                         akiba_full_name, rarity, image_url, card_type
                     ])
+                    total_new_cards += 1
                     existing_card_numbers.add(item_card_number) 
+                    flush_new_cards()
 
                 # --- 【v1.5 JPY-Only 結構 (9 欄)】 ---
                 price_history_to_add.append([
@@ -163,30 +187,26 @@ try:
                     set_id_history, # H: Set_ID
                     image_url   # I: Image_URL
                 ])
+                total_price_records += 1
+                flush_price_history()
                 parsed_count += 1
             except Exception as e:
                 print(f"     -> 解析單個商品時出錯: {e} - {name_div.text if name_div else 'N/A'}")
 
-        print(f"\n✅ 解析完成。準備新增 {len(new_cards_to_add)} 張新卡牌，記錄 {parsed_count} 條買取價格 (JPY)。")
+        print(f"\n✅ 解析完成。準備新增 {total_new_cards} 張新卡牌，記錄 {parsed_count} 條買取價格 (JPY)。")
 
         # --- 步驟 4/4: 排序和寫入 --- (步驟重編)
-        if new_cards_to_add:
-            print(f"     -> 正在將 {len(new_cards_to_add)} 張新 OP 卡牌寫入 `Card_Master`...")
-            master_worksheet.append_rows(new_cards_to_add, value_input_option='USER_ENTERED')
-            print("     -> ✅ 新 OP 卡牌寫入成功！")
+        flush_new_cards(force=True)
+        if total_new_cards == 0:
+            print("     -> 未發現需要添加到 `Card_Master` 的新 OP 卡牌。")
         else:
-            print("     -> 未發現需要添加到 `Card_Master` 的新 OP 卡牌。")
+            print(f"     -> ✅ 累計寫入 `Card_Master` {total_new_cards} 張新 OP 卡牌。")
 
-        if price_history_to_add:
-             print(">> 步驟 4/4: 正在對捕獲的情報進行後端排序...")
-             price_history_to_add.sort(key=lambda record: (record[1], record[5])) 
-             print("✅ 情報排序完畢。")
-
-             print(f"     -> 正在將 {len(price_history_to_add)} 條買取價格 (JPY-Only) **追加**到 `Price_History`...")
-             history_worksheet.append_rows(price_history_to_add, value_input_option='USER_ENTERED')
-             print("     -> ✅ 買取價格情報追加成功！")
+        flush_price_history(force=True)
+        if total_price_records == 0:
+            print(">> 步驟 4/4: 未解析到任何需要寫入的買取價格。")
         else:
-             print(">> 步驟 4/4: 未解析到任何需要寫入的買取價格。")
+            print(f"     -> ✅ 累計寫入 `Price_History` {total_price_records} 條買取價格紀錄。")
         
         print("\n\n🎉🎉🎉 恭喜！Akihabara OP 買取價 (JPY-Only) 捕獲任務完成！ 🎉🎉🎉")
 

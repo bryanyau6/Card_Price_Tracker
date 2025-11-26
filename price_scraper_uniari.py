@@ -1,7 +1,8 @@
 # =========================================================
-# Phase 1, Block 2.1: 價格爬蟲 (Price Scraper) - Union Arena 售價 v1.2 (JPY-Only + API 優化 + 分批寫入)
+# Phase 1, Block 2.1: 價格爬蟲 (Price Scraper) - Union Arena 售價 v1.3 (JPY-Only + API 優化 + 分批寫入)
 # Author: 電王
 # 戰術: 【v1.0 URL 清潔】+【v1.1 JPY-Only + API 優化】+【v1.2 分批寫入】
+# Update: v1.3 - 新增批次即時寫入機制，降低長程執行時的資料遺失風險。
 # Update: v1.1 - 徹底移除所有匯率 (HKD) 相關代碼。
 #              【核心】: 將 get_all_records() 替換為 col_values(2)，
 #               解決 Card_Master 過大導致的 APIError: [500] 錯誤。
@@ -61,6 +62,36 @@ base_url = "https://www.merucarduniari.jp"
 game_title = "UnionArena" # 修正為 UnionArena
 SERIES_INDEX_URL = "https://www.merucarduniari.jp/page/pack"
 
+# --- [v1.3] 批次寫入設定 ---
+MASTER_BATCH_SIZE = 100
+HISTORY_BATCH_SIZE = 200
+APPEND_RETRY_LIMIT = 3
+APPEND_PAUSE_SECONDS = 1.5
+
+def append_rows_with_retry(worksheet, rows, description):
+    if not rows:
+        return 0
+
+    for attempt in range(APPEND_RETRY_LIMIT):
+        try:
+            worksheet.append_rows(rows, value_input_option='USER_ENTERED')
+            time.sleep(APPEND_PAUSE_SECONDS)
+            return len(rows)
+        except gspread.exceptions.APIError as api_error:
+            status_code = getattr(api_error.response, 'status_code', None)
+            wait_time = (attempt + 1) * 10
+            if status_code == 429:
+                print(f"      -> ⚠️ {description}觸發 API 速率限制 (429)。等待 {wait_time} 秒後重試 ({attempt + 1}/{APPEND_RETRY_LIMIT})...")
+            else:
+                print(f"      -> ⚠️ {description}寫入時發生 API 錯誤 (代碼: {status_code})。等待 {wait_time} 秒後重試 ({attempt + 1}/{APPEND_RETRY_LIMIT})...")
+            time.sleep(wait_time)
+        except Exception as unexpected_error:
+            wait_time = 10
+            print(f"      -> ⚠️ {description}寫入時發生未知錯誤: {unexpected_error}。等待 {wait_time} 秒後重試 ({attempt + 1}/{APPEND_RETRY_LIMIT})...")
+            time.sleep(wait_time)
+
+    raise Exception(f"{description}寫入失敗 (重試 {APPEND_RETRY_LIMIT} 次後放棄)。")
+
 # --- [v1.0.3 函數] --- 
 def get_all_series_links(page):
     print(f"    -> 正在訪問系列總覽: {SERIES_INDEX_URL}...")
@@ -87,52 +118,6 @@ def get_all_series_links(page):
     except Exception as e:
         print(f"    -> ❌ 動態掃描系列頁面失敗: {e}")
         return []
-
-# --- 【v1.2 修正】: 新增分批寫入函數 (這是正確的位置) ---
-def batch_update_sheet(worksheet, data, batch_size=5000):
-    """
-    將數據分批寫入 Google Sheet，並包含重試機制以應對 API 速率限制 (429)。
-    """
-    if not data:
-        return 0 # 沒有數據需要寫入
-    
-    total_rows = len(data)
-    print(f"    -> 準備將 {total_rows} 條記錄分批 (每批 {batch_size} 條) 寫入工作表 '{worksheet.title}'...")
-    
-    for i in range(0, total_rows, batch_size):
-        batch = data[i:i + batch_size]
-        current_batch_num = (i // batch_size) + 1
-        total_batches = -(-total_rows // batch_size) # 向上取整
-        
-        print(f"    -> 正在寫入批次 {current_batch_num}/{total_batches} ({len(batch)} 條記錄)...")
-        
-        # --- [健壯性] 加入重試機制 ---
-        retries = 3
-        for attempt in range(retries):
-            try:
-                worksheet.append_rows(batch, value_input_option='USER_ENTERED')
-                print(f"      -> ✅ 批次 {current_batch_num}/{total_batches} 寫入成功。")
-                time.sleep(1.5) # [重要] 每次成功寫入後，"禮貌性"地暫停1.5秒，避免觸發 429 錯誤
-                break # 成功，跳出重試循環
-            
-            except gspread.exceptions.APIError as e:
-                wait_time = (attempt + 1) * 10 # 逐漸增加等待時間
-                if e.response.status_code == 429: # 錯誤 429: Rate limit exceeded
-                    print(f"      -> ❌ 觸發 API 速率限制 (429)。正在等待 {wait_time} 秒後重試 (第 {attempt + 1}/{retries} 次)...")
-                    time.sleep(wait_time)
-                else: # 其他 API 錯誤 (如 500, 503)
-                    print(f"      -> ❌ 寫入批次時發生 API 錯誤 (代碼: {e.response.status_code})。{e}。正在等待 {wait_time} 秒後重試 (第 {attempt + 1}/{retries} 次)...")
-                    time.sleep(wait_time)
-            except Exception as e:
-                # 其他非 gspread 的錯誤 (例如連接中斷)
-                print(f"      -> ❌ 發生未知的寫入錯誤: {e}。正在等待 10 秒後重試 (第 {attempt + 1}/{retries} 次)...")
-                time.sleep(10)
-        else:
-            # 如果重試 3 次都失敗，則拋出異常並中止腳本
-            print(f"    -> ❌❌❌ 批次 {current_batch_num} 寫入失敗 (重試 {retries} 次後放棄)。")
-            raise Exception(f"Batch write failed for worksheet '{worksheet.title}' after {retries} retries.")
-
-    return total_rows
 
 # --- [主程式開始] ---
 try:
@@ -271,7 +256,24 @@ try:
     print("\n>> 步驟 4/5: 開始執行情報擴張 (UA) 與價格記錄...") # 步驟重編
     new_cards_to_add = []
     price_history_to_add = []
+    total_new_cards = 0
+    total_price_records = 0
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def flush_new_cards(force=False):
+        if new_cards_to_add and (force or len(new_cards_to_add) >= MASTER_BATCH_SIZE):
+            print(f"    -> 正在批次寫入 {len(new_cards_to_add)} 張新 UA 卡牌至 `Card_Master`...")
+            append_rows_with_retry(master_worksheet, new_cards_to_add, "UA 新卡批次")
+            print("    -> ✅ UA 新卡批次寫入完成！")
+            new_cards_to_add.clear()
+
+    def flush_price_history(force=False):
+        if price_history_to_add and (force or len(price_history_to_add) >= HISTORY_BATCH_SIZE):
+            print(f"    -> 正在批次寫入 {len(price_history_to_add)} 條 UA 售價至 `Price_History`...")
+            price_history_to_add.sort(key=lambda record: (record[1], record[5]))
+            append_rows_with_retry(history_worksheet, price_history_to_add, "UA 售價批次")
+            print("    -> ✅ UA 售價批次寫入完成！")
+            price_history_to_add.clear()
 
     for (item_card_number, item_name), card_info in all_uniari_cards.items():
         price_jpy = card_info['price_jpy']; status = card_info['status']; image_url = card_info['image_url']
@@ -304,7 +306,9 @@ try:
                 item_name, rarity, image_url, card_type
             ])
             existing_card_numbers.add(item_card_number)
+            total_new_cards += 1
             print(f"      -> 已準備將其添加到 `Card_Master`。")
+            flush_new_cards()
 
         # --- [價格記錄: Price_History] ---
         history_unique_id = f"{item_card_number}_{item_name}"
@@ -321,30 +325,24 @@ try:
             set_id_history, # H: Set_ID
             image_url   # I: Image_URL
         ])
+        total_price_records += 1
+        flush_price_history()
 
-    print(f"\n✅ 情報處理完畢。準備新增 {len(new_cards_to_add)} 張新 UA 卡牌，記錄 {len(price_history_to_add)} 條 UA 價格情報 (JPY)。")
+    print(f"\n✅ 情報處理完畢。共偵測 {total_new_cards} 張新 UA 卡牌，記錄 {total_price_records} 條 UA 價格情報 (JPY)。")
 
-    if price_history_to_add:
-        print(">> 正在對捕獲的情報進行後端排序..."); 
-        price_history_to_add.sort(key=lambda record: (record[1], record[5])); 
-        print("✅ 情報排序完畢。")
+    print("\n>> 步驟 5/5: 正在觸發最終批次寫入 (UA)...")
 
-    # --- 【v1.2 修正】: 使用 `batch_update_sheet` 函數替換 步驟 5/5 ---
-    print("\n>> 步驟 5/5: 正在將數據【分批】寫入 Google Sheet...")
-
-    # 1. 寫入 Card_Master (批次較小)
-    master_rows_added = batch_update_sheet(master_worksheet, new_cards_to_add, batch_size=1000)
-    if master_rows_added > 0:
-        print(f"    -> ✅ 成功將 {master_rows_added} 張新 UA 卡牌寫入 `Card_Master`！")
-    else:
+    flush_new_cards(force=True)
+    if total_new_cards == 0:
         print("    -> 未發現需要添加到 `Card_Master` 的新 UA 卡牌。")
-
-    # 2. 寫入 Price_History (批次較大)
-    history_rows_added = batch_update_sheet(history_worksheet, price_history_to_add, batch_size=5000)
-    if history_rows_added > 0:
-        print(f"    -> ✅ 成功將 {history_rows_added} 條 UA 價格情報追加到 `Price_History`！")
     else:
+        print(f"    -> ✅ 累計寫入 `Card_Master` {total_new_cards} 張新 UA 卡牌。")
+
+    flush_price_history(force=True)
+    if total_price_records == 0:
         print("    -> 未捕獲到需要添加到 `Price_History` 的 UA 價格情報。")
+    else:
+        print(f"    -> ✅ 累計寫入 `Price_History` {total_price_records} 條 UA 價格情報。")
     
     print("\n\n🎉🎉🎉 恭喜！Union Arena 售價 (JPY-Only) 征服任務完成！ 🎉🎉🎉")
 

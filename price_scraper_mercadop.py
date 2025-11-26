@@ -1,7 +1,8 @@
 # =========================================================
-# Phase 1, Block 1.2: 價格爬蟲 (Price Scraper) - Mercadop 永久版 v3.4
+# Phase 1, Block 1.2: 價格爬蟲 (Price Scraper) - Mercadop 永久版 v3.5
 # Author: 電王
-# Update: 【v3.4 JPY-Only + API 優化 + 新動態 URL】
+# Update: 【v3.5 批次寫入 + v3.4 JPY-Only + API 優化 + 新動態 URL】
+#         0. (來自 v3.5) 新增批次寫入機制，減少超時時的資料遺失風險。
 #         1. (來自 v3.3) 修正 Import 錯誤，徹底移除 HKD 相關代碼。
 #         2. (來自 v3.3) 使用 col_values(2) 優化 API 讀取，解決 [500] 錯誤。
 #         3. 【核心】: 放棄主頁掃描，改為從 /page/5 (パック別)
@@ -49,6 +50,10 @@ base_url = "https://www.mercardop.jp"
 game_title = "One Piece Card Game"
 # 【v3.4】 目標改為 Pack/Series 頁面
 SERIES_PAGE_URL = "https://www.mercardop.jp/page/5" 
+
+# --- [v3.5] 批次寫入設定 ---
+MASTER_BATCH_SIZE = 100
+HISTORY_BATCH_SIZE = 200
 
 # --- 【v3.4】 匯率換算函數已移除 --- 
 
@@ -221,6 +226,24 @@ try:
         print("\n>> 步驟 4/5: 開始執行情報擴張與價格記錄...") 
         new_cards_to_add = []
         price_history_to_add = []
+        total_new_cards = 0
+        total_price_records = 0
+
+        def flush_new_cards(force=False):
+            if new_cards_to_add and (force or len(new_cards_to_add) >= MASTER_BATCH_SIZE):
+                print(f"     -> 正在批次寫入 {len(new_cards_to_add)} 張新卡牌至 `Card_Master`...")
+                master_worksheet.append_rows(new_cards_to_add, value_input_option='USER_ENTERED')
+                print("     -> ✅ 新卡牌批次寫入完成。")
+                new_cards_to_add.clear()
+
+        def flush_price_history(force=False):
+            if price_history_to_add and (force or len(price_history_to_add) >= HISTORY_BATCH_SIZE):
+                print(f"     -> 正在批次寫入 {len(price_history_to_add)} 條價格情報至 `Price_History`...")
+                price_history_to_add.sort(key=lambda record: (record[1], record[5]))
+                history_worksheet.append_rows(price_history_to_add, value_input_option='USER_ENTERED')
+                print("     -> ✅ 價格情報批次寫入完成。")
+                price_history_to_add.clear()
+
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         for (item_card_number, item_name), card_info in all_mercadop_cards.items():
@@ -229,7 +252,7 @@ try:
 
             # --- 情報擴張 ---
             if item_card_number not in existing_card_numbers:
-                print(f"     -> ✨ 發現新卡牌！ {item_card_number} {item_name}")
+                print(f"     -> ✨ 發現新卡牌！ {item_card_number} {item_name}")
                 rarity = "Unknown"; card_type = "Unknown"
                 if "(パラレル)" in item_name or "パラレル" in item_name: rarity = "P"
                 elif "SEC" in item_name: rarity = "SEC"
@@ -253,6 +276,8 @@ try:
                 # existing_cards_map removed
                 existing_card_numbers.add(item_card_number)
                 print(f"       -> 已準備將其添加到 `Card_Master`。")
+                total_new_cards += 1
+                flush_new_cards()
 
             # --- 價格歷史記錄 ---
             history_unique_id = f"{item_card_number}_{item_name}"
@@ -269,24 +294,21 @@ try:
                 set_id_history, # H: Set_ID
                 image_url   # I: Image_URL
             ])
+            total_price_records += 1
+            flush_price_history()
 
-        print(f"\n✅ 情報處理完畢。準備新增 {len(new_cards_to_add)} 張新卡牌，記錄 {len(price_history_to_add)} 條價格情報 (JPY)。")
+        print(f"\n✅ 情報處理完畢。累計發現 {total_new_cards} 張新卡牌，整理 {total_price_records} 條價格情報 (JPY)。")
 
-        if price_history_to_add:
-             print(">> 正在對捕獲的情報進行後端排序..."); price_history_to_add.sort(key=lambda record: (record[1], record[5])); print("✅ 情報排序完畢。")
+        print("\n>> 步驟 5/5: 正在將數據寫入 Google Sheet...")
+        if total_new_cards:
+            flush_new_cards(force=True)
+        else:
+            print("     -> 未發現需要添加到 `Card_Master` 的新卡牌。")
 
-        print("\n>> 步驟 5/5: 正在將數據寫入 Google Sheet...") 
-        if new_cards_to_add:
-            print(f"     -> 正在將 {len(new_cards_to_add)} 張新卡牌寫入 `Card_Master`...")
-            master_worksheet.append_rows(new_cards_to_add, value_input_option='USER_ENTERED')
-            print("     -> ✅ 新卡牌寫入成功！")
-        else: print("     -> 未發現需要添加到 `Card_Master` 的新卡牌。")
-
-        if price_history_to_add:
-            print(f"     -> 正在將 {len(price_history_to_add)} 條價格情報 (JPY-Only) **追加**到 `Price_History`...")
-            history_worksheet.append_rows(price_history_to_add, value_input_option='USER_ENTERED')
-            print("     -> ✅ 價格情報追加成功！")
-        else: print("     -> 未捕獲到需要添加到 `Price_History` 的價格情報。")
+        if total_price_records:
+            flush_price_history(force=True)
+        else:
+            print("     -> 未捕獲到需要添加到 `Price_History` 的價格情報。")
 
         print("\n\n🎉🎉🎉 恭喜！Mercadop (JPY-Only + 動態 URL) 征服任務完成！ 🎉🎉🎉")
 

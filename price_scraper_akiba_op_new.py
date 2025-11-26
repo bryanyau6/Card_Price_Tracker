@@ -1,8 +1,9 @@
 # =========================================================
-# Phase 1, Block 1.4: 價格爬蟲 (Price Scraper) - Akiba OP 新彈買取價 v1.3.1
+# Phase 1, Block 1.4: 價格爬蟲 (Price Scraper) - Akiba OP 新彈買取價 v1.4
 # Author: 電王
 # 戰術: 【v1.3 JPY-Only 架構】
-# Update: v1.3.1 - 這是 v1.3 的最終確認版。
+# Update: v1.4   - 新增批次寫入 Price_History，降低長程執行時的資料遺失風險。
+#         v1.3.1 - 這是 v1.3 的最終確認版。
 #         徹底移除所有匯率 (HKD) 相關代碼。
 #         此腳本現在只負責抓取 JPY 原始價格並寫入 Sheet (9欄結構)。
 # =========================================================
@@ -52,6 +53,9 @@ LOAD_MORE_BUTTON_SELECTOR = "button#loadMoreButton"
 FIRST_CARD_SELECTOR = "div.tr"
 base_url_akiba = "https://akihabara-cardshop.com"
 
+# --- [v1.4] 批次寫入設定 ---
+HISTORY_BATCH_SIZE = 200
+
 # --- 【v1.3】 匯率換算函數已移除 --- 
 
 # --- [主程式開始] ---
@@ -83,6 +87,19 @@ try:
             print("     -> ⚠️ 警告: 未能在 15 秒內偵測到卡牌內容。頁面可能為空或未加載。")
             page_is_empty = True 
 
+        price_history_to_add = []
+        total_price_records = 0
+
+        def flush_price_history(force=False):
+            if price_history_to_add and (force or len(price_history_to_add) >= HISTORY_BATCH_SIZE):
+                print(f"     -> 正在批次寫入 {len(price_history_to_add)} 條 OP 新彈買取價格至 `Price_History`...")
+                price_history_to_add.sort(key=lambda record: (record[1], record[5]))
+                history_worksheet.append_rows(price_history_to_add, value_input_option='USER_ENTERED')
+                print("     -> ✅ OP 新彈買取價格批次寫入完成！")
+                price_history_to_add.clear()
+
+        parsed_count = 0
+
         if not page_is_empty:
             print("     -> 正在執行「循環點擊」以加載所有卡牌 (如果存在)...")
             click_count = 0
@@ -105,17 +122,14 @@ try:
                     print(f"     -> 點擊時發生錯誤: {e}, 停止加載。")
                     break
 
-            print("     -> 正在解析最終頁面...")
+            print("     -> 正在解析最終頁面...")
             page_html = page.content()
             soup = BeautifulSoup(page_html, 'html.parser')
 
             print("\n>> 步驟 3/4: 正在提取 OP 新彈買取信息 (JPY) 並構建待寫入列表...")
-            price_history_to_add = [] 
-
             card_units = soup.select("div.tbody > div.tr")
             print(f"     -> 在頁面上偵測到 {len(card_units)} 條買取情報。")
 
-            parsed_count = 0 
             for unit in card_units:
                 name_div = unit.select_one("div.td.td2")
                 model_div = unit.select_one("div.td.td3")
@@ -155,29 +169,24 @@ try:
                         set_id_history, # H: Set_ID
                         image_url   # I: Image_URL
                     ])
+                    total_price_records += 1
+                    flush_price_history()
                     parsed_count += 1
                 except Exception as e:
                     print(f"     -> 解析單個 OP 新彈商品時出錯: {e} - {name_div.text if name_div else 'N/A'}")
 
             print(f"\n✅ 解析完成。成功解析 {parsed_count} 條 OP 新彈買取價格 (JPY)。")
-        
+
         else: 
-            price_history_to_add = [] 
-            parsed_count = 0
             print("\n>> 步驟 3/4: 因頁面為空或未加載，跳過解析。")
 
 
         # --- 步驟 4/4: 排序和寫入 ---
-        if price_history_to_add:
-             print(">> 步驟 4/4: 正在對捕獲的情報進行後端排序...")
-             price_history_to_add.sort(key=lambda record: (record[1], record[5])) # 根據 F 欄(Timestamp)排序
-             print("✅ 情報排序完畢。")
-
-             print(f"     -> 正在將 {len(price_history_to_add)} 條 OP 新彈買取價格 **追加**到 `Price_History`...")
-             history_worksheet.append_rows(price_history_to_add, value_input_option='USER_ENTERED')
-             print("     -> ✅ OP 新彈買取價格情報追加成功！")
-        else:
+        flush_price_history(force=True)
+        if total_price_records == 0:
              print(">> 步驟 4/4: 未解析到任何需要寫入的 OP 新彈買取價格。")
+        else:
+             print(f"     -> ✅ 累計寫入 `Price_History` {total_price_records} 條 OP 新彈買取價格。")
         
         print("\n\n🎉🎉🎉 恭喜！Akiba OP 新彈買取價 (JPY-Only) 捕獲任務完成！ 🎉🎉🎉")
 

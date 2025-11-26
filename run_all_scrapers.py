@@ -16,7 +16,8 @@ import subprocess
 import sys
 import time
 from datetime import datetime
-import os 
+import os
+import threading
 # (v7.5 移除了 gspread 和 requests，因為 v7.4 已改為手動匯率)
 
 def run_script(script_name):
@@ -48,68 +49,79 @@ def run_script(script_name):
         try:
             env = os.environ.copy()
             env['PYTHONUTF8'] = '1'
-            
-            import signal
+
+            socket_error_count = 0
             
             with subprocess.Popen(
-                command, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.STDOUT, 
-                text=True, 
-                encoding='utf-8', 
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding='utf-8',
                 errors='replace',
                 bufsize=1,
                 env=env,
                 cwd=script_dir
             ) as process:
-                socket_error_count = 0
                 start_time_script = time.time()
-                last_output_time = time.time()
+                last_output_time = {"value": time.time()}
                 no_output_timeout = 600  # 10 分鐘沒輸出就認為卡住
-                
+                socket_error_counter = {"count": 0}
+                stop_event = threading.Event()
+
+                def stream_process_output():
+                    try:
+                        for line in iter(process.stdout.readline, ''):
+                            if not line:
+                                break
+                            print(line, end='')
+                            last_output_time["value"] = time.time()
+                            if "socket.send() raised exception" in line:
+                                socket_error_counter["count"] += 1
+                                if socket_error_counter["count"] > 10:
+                                    stop_event.set()
+                                    break
+                    except Exception:
+                        stop_event.set()
+
+                reader_thread = threading.Thread(target=stream_process_output, daemon=True)
+                reader_thread.start()
+
                 try:
                     while True:
-                        # 檢查進程是否還在運行
+                        if stop_event.is_set():
+                            print(f"\n⚠️ 檢測到過多 socket 錯誤 ({socket_error_counter['count']})，終止腳本...")
+                            process.kill()
+                            break
+
                         if process.poll() is not None:
                             break
-                        
-                        # [v7.7] 檢查總運行時間
+
                         elapsed = time.time() - start_time_script
                         if elapsed > timeout_seconds:
                             print(f"\n\n⚠️⚠️⚠️ 超時警告 ⚠️⚠️⚠️")
                             print(f"腳本 {script_name} 已運行 {elapsed/60:.1f} 分鐘，超過限制 {timeout_minutes} 分鐘")
-                            print(f"正在強制終止...")
+                            print("正在強制終止...")
                             process.kill()
                             raise TimeoutError(f"腳本運行超過 {timeout_minutes} 分鐘")
-                        
-                        # [v7.7] 檢查是否長時間沒輸出（可能卡住）
-                        time_since_output = time.time() - last_output_time
+
+                        time_since_output = time.time() - last_output_time["value"]
                         if time_since_output > no_output_timeout:
                             print(f"\n\n⚠️⚠️⚠️ 無輸出超時警告 ⚠️⚠️⚠️")
                             print(f"腳本 {script_name} 已 {time_since_output/60:.1f} 分鐘沒有輸出，可能卡住")
-                            print(f"正在強制終止...")
+                            print("正在強制終止...")
                             process.kill()
                             raise TimeoutError(f"腳本超過 {no_output_timeout/60:.0f} 分鐘沒有輸出")
-                        
-                        # 讀取輸出
-                        line = process.stdout.readline()
-                        if line:
-                            print(line, end='')
-                            last_output_time = time.time()  # 更新最後輸出時間
-                            
-                            # [v7.6] 檢測 socket 錯誤
-                            if "socket.send() raised exception" in line:
-                                socket_error_count += 1
-                                if socket_error_count > 10:
-                                    print(f"\n⚠️ 檢測到過多 socket 錯誤 ({socket_error_count})，終止腳本...")
-                                    process.kill()
-                                    break
-                        else:
-                            time.sleep(0.1)  # 避免 CPU 100%
-                                
-                except Exception as e:
+
+                        time.sleep(0.5)
+
+                except Exception:
                     process.kill()
-                    raise e
+                    raise
+                finally:
+                    reader_thread.join(timeout=5)
+
+                socket_error_count = socket_error_counter["count"]
 
             # [v7.6] 如果是 socket 錯誤導致的失敗，且還有重試次數
             if socket_error_count > 10 and attempt < max_retries:
