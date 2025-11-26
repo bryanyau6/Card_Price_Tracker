@@ -18,6 +18,11 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 import pandas as pd
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+
+
+def log(message: str):
+    print(message)
+    sys.stdout.flush()
 # import requests # <-- 【v1.2】 已移除
 
 # --- [步驟 A: 本地端 Google Sheets 授權] --- 
@@ -263,17 +268,17 @@ try:
 
         def flush_new_cards(force=False):
             if new_cards_to_add and (force or len(new_cards_to_add) >= MASTER_BATCH_SIZE):
-                print(f"     -> 正在批次寫入 {len(new_cards_to_add)} 張新 VG 卡牌至 `Card_Master`...")
+                log(f"     -> 正在批次寫入 {len(new_cards_to_add)} 張新 VG 卡牌至 `Card_Master`...")
                 master_worksheet.append_rows(new_cards_to_add, value_input_option='USER_ENTERED')
-                print("     -> ✅ 新 VG 卡牌批次寫入完成！")
+                log("     -> ✅ 新 VG 卡牌批次寫入完成！")
                 new_cards_to_add.clear()
 
         def flush_price_history(force=False):
             if price_history_to_add and (force or len(price_history_to_add) >= HISTORY_BATCH_SIZE):
-                print(f"     -> 正在批次寫入 {len(price_history_to_add)} 條 VG 售價至 `Price_History`...")
+                log(f"     -> 正在批次寫入 {len(price_history_to_add)} 條 VG 售價至 `Price_History`...")
                 price_history_to_add.sort(key=lambda record: (record[1], record[5]))
                 history_worksheet.append_rows(price_history_to_add, value_input_option='USER_ENTERED')
-                print("     -> ✅ VG 售價批次寫入完成！")
+                log("     -> ✅ VG 售價批次寫入完成！")
                 price_history_to_add.clear()
 
         for (item_card_number, item_name), card_info in all_cardrush_cards.items():
@@ -319,23 +324,26 @@ try:
             total_price_records += 1
             flush_price_history()
 
-        print(f"\n✅ 情報處理完畢。共偵測 {total_new_cards} 張新 VG 卡牌，記錄 {total_price_records} 條 VG 價格情報 (JPY)。")
+            if total_price_records % 150 == 0:
+                log(f"     -> 已處理 {total_price_records} 筆 VG 售價資料 (目前累積 {len(price_history_to_add)} 筆待寫入)。")
 
-        print("\n>> 步驟 5/5: 正在觸發最終批次寫入 (VG 售價)...") # 步驟重編
+        log(f"\n✅ 情報處理完畢。共偵測 {total_new_cards} 張新 VG 卡牌，記錄 {total_price_records} 條 VG 價格情報 (JPY)。")
+
+        log("\n>> 步驟 5/5: 正在觸發最終批次寫入 (VG 售價)...") # 步驟重編
 
         flush_new_cards(force=True)
         if total_new_cards == 0:
-            print("     -> 未發現需要添加到 `Card_Master` 的新 VG 卡牌。")
+            log("     -> 未發現需要添加到 `Card_Master` 的新 VG 卡牌。")
         else:
-            print(f"     -> ✅ 累計寫入 `Card_Master` {total_new_cards} 張新 VG 卡牌。")
+            log(f"     -> ✅ 累計寫入 `Card_Master` {total_new_cards} 張新 VG 卡牌。")
 
         flush_price_history(force=True)
         if total_price_records == 0:
-            print("     -> 未捕獲到需要添加到 `Price_History` 的 VG 價格情報。")
+            log("     -> 未捕獲到需要添加到 `Price_History` 的 VG 價格情報。")
         else:
-            print(f"     -> ✅ 累計寫入 `Price_History` {total_price_records} 條 VG 價格情報。")
+            log(f"     -> ✅ 累計寫入 `Price_History` {total_price_records} 條 VG 價格情報。")
 
-        print("\n\n🎉🎉🎉 恭喜！Card Rush (VG) 售價 (JPY-Only) 征服任務完成！ 🎉🎉🎉")
+        log("\n\n🎉🎉🎉 恭喜！Card Rush (VG) 售價 (JPY-Only) 征服任務完成！ 🎉🎉🎉")
         browser.close()
 
 except Exception as e:

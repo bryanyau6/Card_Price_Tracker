@@ -31,8 +31,13 @@ def run_script(script_name):
     print(f"{'='*50}\n")
     
     # --- [v7.7 新增] 設定超時時間（不同腳本不同時間）---
-    if "mercadop" in script_name or "cardrush" in script_name:
+    no_output_timeout_seconds = 600  # 預設 10 分鐘無輸出判定
+
+    if "mercadop" in script_name:
         timeout_minutes = 60  # 大型爬蟲：60 分鐘
+    elif "cardrush" in script_name:
+        timeout_minutes = 120  # Card Rush 系列延長至 120 分鐘
+        no_output_timeout_seconds = 7200  # Card Rush 無輸出容忍延長至 120 分鐘
     elif "akiba" in script_name or "uniari" in script_name:
         timeout_minutes = 45  # 中型爬蟲：45 分鐘
     elif "archive" in script_name:
@@ -65,7 +70,7 @@ def run_script(script_name):
             ) as process:
                 start_time_script = time.time()
                 last_output_time = {"value": time.time()}
-                no_output_timeout = 600  # 10 分鐘沒輸出就認為卡住
+                no_output_timeout = no_output_timeout_seconds
                 socket_error_counter = {"count": 0}
                 stop_event = threading.Event()
 
