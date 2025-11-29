@@ -344,8 +344,14 @@ try:
             log(f"     -> ✅ 累計寫入 `Price_History` {total_price_records} 條 VG 價格情報。")
 
         log("\n\n🎉🎉🎉 恭喜！Card Rush (VG) 售價 (JPY-Only) 征服任務完成！ 🎉🎉🎉")
-        browser.close()
+        try:
+            browser.close()
+        except Exception:
+            pass
 
 except Exception as e:
     print(f"\n❌❌❌ 發生嚴重錯誤 ❌❌❌"); print(f"錯誤詳情: {e}")
-    if 'browser' in locals() and browser.is_connected(): browser.close()
+    try:
+        if 'browser' in locals() and browser.is_connected(): browser.close()
+    except Exception:
+        pass

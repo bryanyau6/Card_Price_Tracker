@@ -39,7 +39,10 @@ def run_script(script_name):
     elif "cardrush" in script_name:
         timeout_minutes = 120  # Card Rush 系列延長至 120 分鐘
         no_output_timeout_seconds = 7200  # Card Rush 無輸出容忍延長至 120 分鐘
-    elif "akiba" in script_name or "uniari" in script_name:
+    elif "uniari" in script_name:
+        timeout_minutes = 60  # Uniari 延長至 60 分鐘
+        no_output_timeout_seconds = 3600  # Uniari 無輸出容忍調整為 60 分鐘
+    elif "akiba" in script_name:
         timeout_minutes = 45  # 中型爬蟲：45 分鐘
     elif "archive" in script_name:
         timeout_minutes = 30  # 維護腳本：30 分鐘

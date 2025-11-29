@@ -156,13 +156,13 @@ try:
 
         for i, series_url_path in enumerate(UA_SERIES_URLS):
             series_url = base_url + series_url_path
-            print(f"  -> 正在掃蕩專櫃 {i+1}/{len(UA_SERIES_URLS)}: {series_url}")
+            log(f"  -> 正在掃蕩專櫃 {i+1}/{len(UA_SERIES_URLS)}: {series_url}")
             current_page = 1
             while True:
                 page_url = f"{series_url}?page={current_page}"
                 if current_page == 1: 
                     page_url = series_url
-                print(f"    -> 正在掃蕩頁面 {current_page}...")
+                log(f"    -> 正在掃蕩頁面 {current_page}...")
                 try:
                     page.goto(page_url, wait_until='networkidle', timeout=30000) 
                     page.wait_for_selector("li.list_item_cell", timeout=10000)
@@ -173,7 +173,7 @@ try:
                     if not card_items: 
                         break # 沒有商品，跳出 while True
                     
-                    print(f"    -> 在此頁面發現 {len(card_items)} 個商品。")
+                    log(f"    -> 在此頁面發現 {len(card_items)} 個商品。")
 
                     for item in card_items:
                         item_data = item.find('div', class_='item_data');
@@ -235,7 +235,7 @@ try:
 
                     next_page_link = soup.select_one('a.to_next_page')
                     if not next_page_link: 
-                        print("    -> 此系列已掃蕩完畢（沒有下一頁）。"); 
+                        log("    -> 此系列已掃蕩完畢（沒有下一頁）。"); 
                         break # 跳出 while True
                     
                     current_page += 1
@@ -243,23 +243,23 @@ try:
                 
                 except PlaywrightTimeoutError:
                     if current_page == 1: 
-                        print("    -> 警告：此系列可能為空或加載超時...")
+                        log("    -> 警告：此系列可能為空或加載超時...")
                     else: 
-                        print(f"    -> 在第 {current_page} 頁等待超時，跳轉到下個系列。")
+                        log(f"    -> 在第 {current_page} 頁等待超時，跳轉到下個系列。")
                     break # 跳出 while True
                 except Exception as e: 
-                    print(f"    -> 掃蕩頁面 {current_page} 時失敗。錯誤: {e}"); 
+                    log(f"    -> 掃蕩頁面 {current_page} 時失敗。錯誤: {e}"); 
                     break # 跳出 while True
         
         # --- 【v1.2 修正】: 將 browser.close() 移至 "with" 區塊內部 ---
-        print("    -> ✅ 瀏覽器爬蟲任務完成，正在關閉瀏覽器...")
+        log("    -> ✅ 瀏覽器爬蟲任務完成，正在關閉瀏覽器...")
         browser.close() 
     
     # --- "with sync_playwright() as p:" 區塊在此結束 ---
 
-    print(f"\n✅ 所有 UA 專櫃掃蕩完畢，共捕獲 {len(all_uniari_cards)} 種卡牌的情報。")
+    log(f"\n✅ 所有 UA 專櫃掃蕩完畢，共捕獲 {len(all_uniari_cards)} 種卡牌的情報。")
 
-    print("\n>> 步驟 4/5: 開始執行情報擴張 (UA) 與價格記錄...") # 步驟重編
+    log("\n>> 步驟 4/5: 開始執行情報擴張 (UA) 與價格記錄...") # 步驟重編
     new_cards_to_add = []
     price_history_to_add = []
     total_new_cards = 0
@@ -286,7 +286,7 @@ try:
 
         # --- [情報擴張: Card_Master] ---
         if item_card_number not in existing_card_numbers:
-            print(f"    -> ✨ 發現新 UA 卡牌！ {item_card_number} {item_name}")
+            log(f"    -> ✨ 發現新 UA 卡牌！ {item_card_number} {item_name}")
             rarity = "Unknown"; card_type = "Unknown"
             if "SR★★" in item_name or "★★" in item_name: rarity = "SR★★"
             elif "SR★" in item_name or "★" in item_name: rarity = "SR★" 
@@ -313,7 +313,7 @@ try:
             ])
             existing_card_numbers.add(item_card_number)
             total_new_cards += 1
-            print(f"      -> 已準備將其添加到 `Card_Master`。")
+            log(f"      -> 已準備將其添加到 `Card_Master`。")
             flush_new_cards()
 
         # --- [價格記錄: Price_History] ---

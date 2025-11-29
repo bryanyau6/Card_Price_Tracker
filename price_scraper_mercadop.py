@@ -19,6 +19,10 @@ import pandas as pd
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 # import requests # <-- 【v3.4】 已移除
 
+
+def log(message: str) -> None:
+    print(message, flush=True)
+
 # --- [步驟 A: 本地端 Google Sheets 授權] ---
 print(">> 步驟 A: 正在進行本地端 Google Sheets 授權...")
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
@@ -312,8 +316,14 @@ try:
 
         print("\n\n🎉🎉🎉 恭喜！Mercadop (JPY-Only + 動態 URL) 征服任務完成！ 🎉🎉🎉")
 
-        browser.close()
+        try:
+            browser.close()
+        except Exception:
+            pass  # 瀏覽器可能已關閉，忽略錯誤
 
 except Exception as e:
     print(f"\n❌❌❌ 發生嚴重錯誤 ❌❌❌"); print(f"錯誤詳情: {e}")
-    if 'browser' in locals() and browser.is_connected(): browser.close()
+    try:
+        if 'browser' in locals() and browser.is_connected(): browser.close()
+    except Exception:
+        pass  # 瀏覽器可能已關閉，忽略錯誤
