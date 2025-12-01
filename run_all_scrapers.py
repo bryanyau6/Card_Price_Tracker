@@ -37,8 +37,8 @@ def run_script(script_name):
         timeout_minutes = 60  # 大型爬蟲：60 分鐘
         no_output_timeout_seconds = 3600  # Mercadop 無輸出容忍調整為 60 分鐘
     elif "cardrush" in script_name:
-        timeout_minutes = 120  # Card Rush 系列延長至 120 分鐘
-        no_output_timeout_seconds = 7200  # Card Rush 無輸出容忍延長至 120 分鐘
+        timeout_minutes = 180  # Card Rush 系列延長至 180 分鐘 (3小時)
+        no_output_timeout_seconds = 1800  # Card Rush 無輸出容忍 30 分鐘
     elif "uniari" in script_name:
         timeout_minutes = 60  # Uniari 延長至 60 分鐘
         no_output_timeout_seconds = 3600  # Uniari 無輸出容忍調整為 60 分鐘

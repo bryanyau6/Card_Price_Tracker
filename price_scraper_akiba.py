@@ -16,14 +16,18 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 import pandas as pd
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-# import requests # <-- 【v1.5】 已移除
+
+# --- 設定 stdout 編碼為 UTF-8 (必須在任何 print 之前) ---
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 
 def log(message: str) -> None:
     print(message, flush=True)
 
+
 # --- [步驟 A: 本地端 Google Sheets 授權] ---
-print(">> 步驟 A: 正在進行本地端 Google Sheets 授權...")
+log(">> 步驟 A: 正在進行本地端 Google Sheets 授權...")
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 creds = None
 # ... (授權代碼不變) ...

@@ -17,14 +17,18 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 import pandas as pd
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-# import requests # <-- 【v1.2】 已移除
+
+# --- 設定 stdout 編碼為 UTF-8 (必須在任何 print 之前) ---
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 
 def log(message: str) -> None:
     print(message, flush=True)
 
+
 # --- [步驟 A: 本地端 Google Sheets 授權] --- 
-print(">> 步驟 A: 正在進行本地端 Google Sheets 授權...")
+log(">> 步驟 A: 正在進行本地端 Google Sheets 授權...")
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 creds = None
 # ... (授權代碼不變) ...
@@ -89,7 +93,7 @@ try:
         while current_page <= last_page:
             page_url = f"{base_url}?displayMode=リスト&limit=100&page={current_page}&sort%5Bkey%5D=amount&sort%5Border%5D=desc&associations%5B%5D=ocha_product&to_json_option%5Bexcept%5D%5B%5D=original_image_source&to_json_option%5Bexcept%5D%5B%5D=created_at&to_json_option%5Binclude%5D%5Bocha_product%5D%5Bonly%5D%5B%5D=id&to_json_option%5Binclude%5D%5Bocha_product%5D%5Bmethods%5D%5B%5D=image_source"
 
-            print(f"     -> 正在掃蕩頁面 {current_page} / {last_page}...")
+            log(f"     -> 正在掃蕩頁面 {current_page} / {last_page}...")
             try:
                 page.goto(page_url, wait_until='domcontentloaded', timeout=60000)
                 
@@ -103,10 +107,10 @@ try:
                 
                 if current_page == 1:
                     last_page = data['props']['pageProps']['lastPage'] 
-                    print(f"     -> 偵測到總頁數: {last_page}")
+                    log(f"     -> 偵測到總頁數: {last_page}")
 
                 if not cards_on_page:
-                    print("     -> 此頁面無數據，結束掃蕩。")
+                    log("     -> 此頁面無數據，結束掃蕩。")
                     break
 
                 for card in cards_on_page:
@@ -136,12 +140,12 @@ try:
                             'card_type': card_type
                         }
                     except Exception as e_inner:
-                        print(f"       -> 解析單張卡牌時失敗: {e_inner} - {card.get('name')}")
+                        log(f"       -> 解析單張卡牌時失敗: {e_inner} - {card.get('name')}")
                         
-                print(f"     -> ✅ 頁面 {current_page} 解析完畢，捕獲 {len(cards_on_page)} 條情報。")
+                log(f"     -> ✅ 頁面 {current_page} 解析完畢，捕獲 {len(cards_on_page)} 條情報。")
                 
             except Exception as e:
-                print(f"     -> ❌ 掃蕩頁面 {current_page} 時失敗: {e}")
+                log(f"     -> ❌ 掃蕩頁面 {current_page} 時失敗: {e}")
             
             current_page += 1
             time.sleep(random.uniform(1, 3)) 
@@ -156,17 +160,17 @@ try:
 
         def flush_new_cards(force=False):
             if new_cards_to_add and (force or len(new_cards_to_add) >= MASTER_BATCH_SIZE):
-                print(f"     -> 正在批次寫入 {len(new_cards_to_add)} 張新 VG 卡牌至 `Card_Master`...")
+                log(f"     -> 正在批次寫入 {len(new_cards_to_add)} 張新 VG 卡牌至 `Card_Master`...")
                 master_worksheet.append_rows(new_cards_to_add, value_input_option='USER_ENTERED')
-                print("     -> ✅ 新 VG 卡牌批次寫入完成！")
+                log("     -> ✅ 新 VG 卡牌批次寫入完成！")
                 new_cards_to_add.clear()
 
         def flush_price_history(force=False):
             if price_history_to_add and (force or len(price_history_to_add) >= HISTORY_BATCH_SIZE):
-                print(f"     -> 正在批次寫入 {len(price_history_to_add)} 條 VG 買取價格至 `Price_History`...")
+                log(f"     -> 正在批次寫入 {len(price_history_to_add)} 條 VG 買取價格至 `Price_History`...")
                 price_history_to_add.sort(key=lambda record: (record[1], record[5]))
                 history_worksheet.append_rows(price_history_to_add, value_input_option='USER_ENTERED')
-                print("     -> ✅ VG 買取價格批次寫入完成！")
+                log("     -> ✅ VG 買取價格批次寫入完成！")
                 price_history_to_add.clear()
 
         for (item_card_number, item_name), card_info in all_cardrush_cards.items():
@@ -209,23 +213,26 @@ try:
             total_price_records += 1
             flush_price_history()
 
-        print(f"\n✅ 情報處理完畢。共偵測 {total_new_cards} 張新 VG 卡牌，記錄 {total_price_records} 條 VG 買取價格 (JPY)。")
+            if total_price_records % 500 == 0:
+                log(f"     -> 已處理 {total_price_records} 筆 VG 買取價格 (目前累積 {len(price_history_to_add)} 筆待寫入)。")
 
-        print("\n>> 步驟 5/5: 正在觸發最終批次寫入 (VG 買取)...") # 步驟重編
+        log(f"\n✅ 情報處理完畢。共偵測 {total_new_cards} 張新 VG 卡牌，記錄 {total_price_records} 條 VG 買取價格 (JPY)。")
+
+        log("\n>> 步驟 5/5: 正在觸發最終批次寫入 (VG 買取)...") # 步驟重編
 
         flush_new_cards(force=True)
         if total_new_cards == 0:
-            print("     -> 未發現需要添加到 `Card_Master` 的新 VG 卡牌。")
+            log("     -> 未發現需要添加到 `Card_Master` 的新 VG 卡牌。")
         else:
-            print(f"     -> ✅ 累計寫入 `Card_Master` {total_new_cards} 張新 VG 卡牌。")
+            log(f"     -> ✅ 累計寫入 `Card_Master` {total_new_cards} 張新 VG 卡牌。")
 
         flush_price_history(force=True)
         if total_price_records == 0:
-            print("     -> 未捕獲到需要添加到 `Price_History` 的 VG 買取價格情報。")
+            log("     -> 未捕獲到需要添加到 `Price_History` 的 VG 買取價格情報。")
         else:
-            print(f"     -> ✅ 累計寫入 `Price_History` {total_price_records} 條 VG 買取價格情報。")
+            log(f"     -> ✅ 累計寫入 `Price_History` {total_price_records} 條 VG 買取價格情報。")
 
-        print("\n\n🎉🎉🎉 恭喜！Card Rush (VG) 買取價 (JPY-Only) 征服任務完成！ 🎉🎉🎉")
+        log("\n\n🎉🎉🎉 恭喜！Card Rush (VG) 買取價 (JPY-Only) 征服任務完成！ 🎉🎉🎉")
         try:
             browser.close()
         except Exception:

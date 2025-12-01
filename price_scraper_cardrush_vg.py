@@ -19,14 +19,18 @@ from bs4 import BeautifulSoup
 import pandas as pd
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
+# --- 設定 stdout 編碼為 UTF-8 (必須在任何 print 之前) ---
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+
 
 def log(message: str):
     print(message)
     sys.stdout.flush()
-# import requests # <-- 【v1.2】 已移除
+
 
 # --- [步驟 A: 本地端 Google Sheets 授權] --- 
-print(">> 步驟 A: 正在進行本地端 Google Sheets 授權...")
+log(">> 步驟 A: 正在進行本地端 Google Sheets 授權...")
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 creds = None
 # ... (授權代碼不變) ...
@@ -35,16 +39,16 @@ if not creds or not creds.valid:
     if creds and creds.expired and creds.refresh_token:
         try: creds.refresh(Request())
         except Exception as e:
-            print(f"❌ 刷新 Token 失敗: {e}");
+            log(f"X 刷新 Token 失敗: {e}");
             if os.path.exists('credentials.json'):
                 flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES); creds = flow.run_local_server(port=0)
-            else: print("\n❌ 錯誤: 找不到 'credentials.json'。"); sys.exit(1)
+            else: log("\nX 錯誤: 找不到 'credentials.json'。"); sys.exit(1)
     else:
-        if not os.path.exists('credentials.json'): print("\n❌ 錯誤: 找不到 'credentials.json'。"); sys.exit(1)
+        if not os.path.exists('credentials.json'): log("\nX 錯誤: 找不到 'credentials.json'。"); sys.exit(1)
         flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES); creds = flow.run_local_server(port=0)
     with open('token.json', 'w') as token: token.write(creds.to_json())
 gc = gspread.authorize(creds)
-print("✅ Google Sheets 授權成功。")
+log("[OK] Google Sheets 授權成功。")
 
 # --- [VG 設定區域] ---
 sheet_name = "卡牌價格追蹤系統 - Command Deck"
@@ -86,7 +90,7 @@ def get_links_from_page(page, url, selector):
     print(f"     -> 正在訪問: {url}...")
     try:
         page.goto(url, wait_until='networkidle', timeout=60000)
-        page.wait_for_selector(selector, timeout=15000)
+        page.wait_for_selector(selector, timeout=30000)
         html = page.content()
         soup = BeautifulSoup(html, 'html.parser')
         links = []

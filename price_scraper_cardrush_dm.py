@@ -17,14 +17,18 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 import pandas as pd
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-# import requests # <-- 【v1.3】 已移除
+
+# --- 設定 stdout 編碼為 UTF-8 (必須在任何 print 之前) ---
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 
 def log(message: str) -> None:
     print(message, flush=True)
 
-# --- [步驟 A: 本地端 Google Sheets 授權] --- 
-print(">> 步驟 A: 正在進行本地端 Google Sheets 授權...")
+
+# --- [步驟 A: 本地端 Google Sheets 授權] ---
+log(">> 步驟 A: 正在進行本地端 Google Sheets 授權...")
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 creds = None
 # ... (授權代碼不變) ...
@@ -64,7 +68,7 @@ def get_links_from_page(page, url, selector):
     print(f"      -> 正在訪問: {url}...")
     try:
         page.goto(url, wait_until='networkidle', timeout=60000)
-        page.wait_for_selector(selector, timeout=15000)
+        page.wait_for_selector(selector, timeout=30000)
         html = page.content()
         soup = BeautifulSoup(html, 'html.parser')
         links = []
@@ -119,13 +123,13 @@ try:
         for i, series_url_path in enumerate(DM_SERIES_URLS):
             series_url = base_url + series_url_path 
             
-            print(f"   -> 正在掃蕩專櫃 {i+1}/{len(DM_SERIES_URLS)}: {series_url}")
+            log(f"   -> 正在掃蕩專櫃 {i+1}/{len(DM_SERIES_URLS)}: {series_url}")
             current_page = 1
             while True:
                 page_url = f"{series_url}?page={current_page}"
                 if current_page == 1: page_url = series_url
 
-                print(f"      -> 正在掃蕩頁面 {current_page}...")
+                log(f"      -> 正在掃蕩頁面 {current_page}...")
                 try:
                     page.goto(page_url, wait_until='networkidle', timeout=30000)
                     page.wait_for_selector("li.list_item_cell", timeout=10000)
@@ -133,7 +137,7 @@ try:
                     soup = BeautifulSoup(page_html, 'html.parser')
                     card_items = soup.select("li.list_item_cell")
                     if not card_items: break
-                    print(f"      -> 在此頁面發現 {len(card_items)} 個商品。")
+                    log(f"      -> 在此頁面發現 {len(card_items)} 個商品。")
 
                     for item in card_items:
                         item_data = item.find('div', class_='item_data');
@@ -175,7 +179,7 @@ try:
 
                     next_page_link = soup.select_one('a.to_next_page')
                     if not next_page_link: 
-                        print("      -> 此系列已掃蕩完畢（沒有下一頁）。"); 
+                        log("      -> 此系列已掃蕩完畢（沒有下一頁）。"); 
                         break
                     current_page += 1
                     time.sleep(random.uniform(1, 3)) 
