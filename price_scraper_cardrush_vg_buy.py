@@ -80,7 +80,7 @@ try:
 
     with sync_playwright() as p:
         print("\n>> 步驟 2/5: 正在啟動 Playwright 瀏覽器...") # 步驟重編
-        browser = p.firefox.launch(headless=True)
+        browser = p.chromium.launch(headless=True, channel="msedge")
         page = browser.new_page()
         print("✅ Playwright 瀏覽器準備就緒。")
 
