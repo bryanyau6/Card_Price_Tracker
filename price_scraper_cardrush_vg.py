@@ -196,7 +196,9 @@ try:
                     
                 except Exception as e: 
                     print(f"     -> ❌ 解析頁面 {current_page} 時失敗: {e}"); 
-                    break  # 失敗就跳到下個專櫃        print(f"\n✅ 所有 VG 專櫃掃蕩完畢，共捕獲 {len(all_cardrush_cards)} 種卡牌的情報。")
+                    break  # 失敗就跳到下個專櫃
+
+        print(f"\n✅ 所有 VG 專櫃掃蕩完畢，共捕獲 {len(all_cardrush_cards)} 種卡牌的情報。")
 
         print("\n>> 步驟 4/5: 開始執行情報擴張 (VG) 與價格記錄...") # 步驟重編
         new_cards_to_add = []
