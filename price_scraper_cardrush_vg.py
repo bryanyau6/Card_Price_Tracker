@@ -66,25 +66,6 @@ HISTORY_BATCH_SIZE = 200
 
 # --- 【v1.3】 匯率換算函數已移除 --- 
 
-# --- [v1.4 新增：帶重試機制的頁面訪問函數] ---
-def retry_page_goto(page, url, max_retries=3):
-    """帶重試機制的頁面訪問"""
-    for attempt in range(max_retries):
-        try:
-            page.goto(url, wait_until='networkidle', timeout=30000)
-            page.wait_for_selector("li.list_item_cell", timeout=10000)
-            return True
-        except Exception as e:
-            print(f"     -> ⚠️ 訪問失敗 (嘗試 {attempt+1}/{max_retries}): {str(e)[:80]}...")
-            if attempt < max_retries - 1:
-                wait_time = random.uniform(3, 6)
-                print(f"     -> 等待 {wait_time:.1f} 秒後重試...")
-                time.sleep(wait_time)
-            else:
-                print(f"     -> ❌ 頁面重試 {max_retries} 次後仍失敗")
-                return False
-    return False
-
 # --- [v1.2 函數] ---
 def get_links_from_page(page, url, selector):
     print(f"     -> 正在訪問: {url}...")
@@ -145,24 +126,10 @@ try:
         all_cardrush_cards = {}
 
         for i, series_url_path in enumerate(VG_SERIES_URLS):
-            # --- [v1.4 新增：每 15 個專櫃重啟瀏覽器] ---
-            if i > 0 and i % 15 == 0:
-                print(f"\n  -> 🔄 已掃描 {i} 個專櫃，重啟瀏覽器以釋放資源...")
-                try:
-                    page.close()
-                    browser.close()
-                    time.sleep(3)
-                    browser = p.chromium.launch(headless=True, channel="msedge")
-                    page = browser.new_page()
-                    print("  -> ✅ 瀏覽器已重啟\n")
-                except Exception as e:
-                    print(f"  -> ⚠️ 瀏覽器重啟失敗: {e}，嘗試繼續...")
-            
             series_url = base_url + series_url_path
             print(f"  -> 正在掃蕩專櫃 {i+1}/{len(VG_SERIES_URLS)}: {series_url}")
             
             current_page = 1
-            consecutive_failures = 0  # [v1.4] 連續失敗計數器
             
             while True:
                 page_url = f"{series_url}?page={current_page}"
@@ -170,36 +137,9 @@ try:
 
                 print(f"     -> 正在掃蕩頁面 {current_page}...")
                 
-                # --- [v1.4 核心改動：使用重試函數] ---
-                if not retry_page_goto(page, page_url):
-                    consecutive_failures += 1
-                    
-                    # 連續失敗 2 次，嘗試重啟瀏覽器
-                    if consecutive_failures == 2:
-                        print(f"     -> 🔄 連續失敗 {consecutive_failures} 次，嘗試重啟瀏覽器...")
-                        try:
-                            page.close()
-                            browser.close()
-                            time.sleep(5)
-                            browser = p.chromium.launch(headless=True, channel="msedge")
-                            page = browser.new_page()
-                            print("     -> ✅ 瀏覽器已重啟，繼續嘗試...")
-                            consecutive_failures = 0
-                            continue  # 重新嘗試當前頁面
-                        except Exception as e:
-                            print(f"     -> ❌ 瀏覽器重啟失敗: {e}")
-                    
-                    # 連續失敗 3 次，放棄該專櫃
-                    if consecutive_failures >= 3:
-                        print("     -> ⚠️ 連續失敗過多，跳轉到下個專櫃")
-                        break
-                    
-                    current_page += 1
-                    continue
-                
-                consecutive_failures = 0  # 成功後重置失敗計數
-                
                 try:
+                    page.goto(page_url, wait_until='networkidle', timeout=30000)
+                    page.wait_for_selector("li.list_item_cell", timeout=10000)
                     page_html = page.content()
                     soup = BeautifulSoup(page_html, 'html.parser')
                     card_items = soup.select("li.list_item_cell")
@@ -250,18 +190,13 @@ try:
                         break
                     
                     current_page += 1
-                    wait_time = random.uniform(2, 5)  # [v1.4] 增加延遲範圍
+                    
+                    wait_time = random.uniform(2, 5)
                     time.sleep(wait_time)
                     
                 except Exception as e: 
                     print(f"     -> ❌ 解析頁面 {current_page} 時失敗: {e}"); 
-                    consecutive_failures += 1
-                    if consecutive_failures >= 3:
-                        print("     -> 連續解析失敗過多，跳轉到下個專櫃")
-                        break
-                    continue
-
-        print(f"\n✅ 所有 VG 專櫃掃蕩完畢，共捕獲 {len(all_cardrush_cards)} 種卡牌的情報。")
+                    break  # 失敗就跳到下個專櫃        print(f"\n✅ 所有 VG 專櫃掃蕩完畢，共捕獲 {len(all_cardrush_cards)} 種卡牌的情報。")
 
         print("\n>> 步驟 4/5: 開始執行情報擴張 (VG) 與價格記錄...") # 步驟重編
         new_cards_to_add = []
